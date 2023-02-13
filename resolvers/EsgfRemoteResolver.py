@@ -1,10 +1,12 @@
 from datetime import datetime
 from pathlib import Path
+from pyesgf.logon import LogonManager
 # from utils import test_date_bounds
 import fsspec
 import json
 import urllib
 import shutil
+import ssl
 
 class EsgfRemoteResolver():
     def __init__(
@@ -53,7 +55,7 @@ class EsgfRemoteResolver():
         self.download_url = download_url
         self.dry_run = dry_run
         self.local_path = local_path
-        self.openid = None
+        self.openid = openid
         self.ssl_context = None
         self.filepaths = []
 
@@ -154,7 +156,7 @@ class EsgfRemoteResolver():
             except Exception as e:
                 print('-> -> ->', e)
                 if hasattr(e, 'status_code') and e.status_code in [401, 402, 403]:
-                    print('-> -> ->', 'Have you passed in `ssl_context`?')
+                    print('-> -> ->', 'Have you passed in `openid`?')
 
         return local_filenames
 
@@ -167,12 +169,14 @@ class EsgfRemoteResolver():
         lm.logon_with_openid(
             openid=self.openid,
             password=None,
+            interactive=True,
             bootstrap=True
         )
 
         ssl_context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
         ssl_context.load_verify_locations(capath=lm.esgf_certs_dir)
         ssl_context.load_cert_chain(lm.esgf_credentials)
+
         self.ssl_context = ssl_context
 
     # def filter_result(x):
