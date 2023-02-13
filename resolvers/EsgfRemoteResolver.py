@@ -17,7 +17,9 @@ class EsgfRemoteResolver():
         download_url='https://esgf-index1.ceda.ac.uk',
         dry_run=False,
         local_path='',
-        openid=None
+        openid=None,
+        ssl_context=None,
+        verbose=False
     ):
         '''
         TODO
@@ -57,22 +59,31 @@ class EsgfRemoteResolver():
         self.dry_run = dry_run
         self.local_path = local_path
         self.openid = openid
-        self.ssl_context = None
+        self.ssl_context = ssl_context
         self.filepaths = []
+        self.verbose = verbose
 
-    def load(self):
+    async def load(self):
         '''
         TODO
         '''
-        self.openid != None and self.esgf_login()
+        self.ssl_context == None and self.openid != None and self.esgf_login()
 
         results = self.query_datasets()
         if len(results) == 0:
             print('No results found, exiting.')
             return []
 
-        print('Results:')
-        self.filepaths = [self.download_dataset_files(item) for item in results]
+        self.verbose and print('Results:')
+        filepaths = []
+        errors = []
+        for item in results:
+            downloaded_results = await self.download_dataset_files(item)
+            filepaths.append(downloaded_results['files'])
+            errors += downloaded_results['errors']
+
+        self.filepaths = filepaths
+        print('Total errors:', len(errors))
 
         return self.filepaths
 
@@ -112,18 +123,19 @@ class EsgfRemoteResolver():
         item_index_node = item['index_node']
         url = f'{self.download_url}/search_files/{item_id}/{item_index_node}/?limit=1000' # TODO: pagination
 
-        print('-> -> Requesting remote file URLs for dataset:', f'-> -> {url}', sep='\n')
+        self.verbose and print('-> -> Requesting remote file URLs for dataset:', f'-> -> {url}', sep='\n')
         try:
             req = urllib.request.Request(url)
             response = urllib.request.urlopen(req)
 
             results = json.load(response)['response']['docs']
         except Exception as e:
-            print('An error occurred during second query', e, sep='\n')
+            print('An error occurred during second query:', url, e, sep='\n')
 
             return []
 
         local_filenames = []
+        errors = []
         for item in results:
             file_url = [url.split('|')[0] for url in item['url'] if 'HTTPServer' in url]
             if len(file_url) == 0:
@@ -140,30 +152,35 @@ class EsgfRemoteResolver():
             local_filename.parent.mkdir(parents=True, exist_ok=True)
 
             if local_filename.exists():
-                print(f'-> -> -> Already exists, skipping: {local_filename}')
+                self.verbose and print(f'-> -> -> Already exists, skipping: {local_filename}')
                 local_filenames.append(str(local_filename))
                 continue
 
             if self.dry_run:
-                print(f'-> -> -> DRY RUN, skipping: {local_filename}')
+                self.verbose and print(f'-> -> -> DRY RUN, skipping: {local_filename}')
                 continue
 
-            print(f'-> -> -> Downloading:')
-            print(f'-> -> -> {file_url}')
-            print(f'-> -> -> {local_filename}')
+            if self.verbose:
+                print(f'-> -> -> Downloading:')
+                print(f'-> -> -> {file_url}')
+                print(f'-> -> -> {local_filename}')
 
             try:
                 await self.fetch_esgf_file(file_url, local_filename, ssl=self.ssl_context)
 
                 local_filenames.append(str(local_filename))
             except Exception as e:
-                # TODO: improve error messaging, change to aiohttp for status codes?
+                errors.append(file_url)
                 print('-> -> ->', 'Error')
+                print('-> -> ->', file_url)
                 print('-> -> ->', e)
-                if hasattr(e, 'status_code') and e.status_code in [401, 402, 403]:
-                    print('-> -> ->', 'Have you passed in `openid`?')
+                #if hasattr(e, 'status_code') and e.status_code in [401, 402, 403]:
+                #    print('-> -> ->', 'Have you passed in `openid`?')
 
-        return local_filenames
+        return {
+            'files': local_filenames,
+            'errors': errors
+        }
 
     def esgf_login(self):
         '''
