@@ -2,7 +2,8 @@ from datetime import datetime
 from pathlib import Path
 from pyesgf.logon import LogonManager
 # from utils import test_date_bounds
-import fsspec
+import aiohttp
+import asyncio
 import json
 import urllib
 import shutil
@@ -103,7 +104,7 @@ class EsgfRemoteResolver():
 
             return []
 
-    def download_dataset_files(self, item):
+    async def download_dataset_files(self, item):
         '''
         TODO
         '''
@@ -152,8 +153,7 @@ class EsgfRemoteResolver():
             print(f'-> -> -> {local_filename}')
 
             try:
-                with fsspec.open(file_url, ssl=self.ssl_context) as src_file, open(local_filename, 'wb') as dest_file:
-                    shutil.copyfileobj(src_file, dest_file)
+                await self.fetch_esgf_file(file_url, local_filename, ssl=self.ssl_context)
 
                 local_filenames.append(str(local_filename))
             except Exception as e:
@@ -183,6 +183,20 @@ class EsgfRemoteResolver():
         ssl_context.load_cert_chain(lm.esgf_credentials)
 
         self.ssl_context = ssl_context
+
+    async def fetch_esgf_file(self, url, local, ssl=None):
+        async def fetch(url, local, ssl):
+            with aiohttp.ClientSession(trust_env=True) as client:
+                with client.request('get', url, ssl=ssl) as response:
+                    assert response.status == 200
+
+                    chunk_size = 2048
+                    with open(local, 'wb') as fd:
+                        for chunk in response.content.iter_chunked(chunk_size):
+                            fd.write(chunk)
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(fetch(url, local, ssl=ssl))
 
     # def filter_result(x):
     #     date_out_of_bounds = test_date_bounds(
