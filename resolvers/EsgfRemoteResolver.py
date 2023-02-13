@@ -134,12 +134,13 @@ class EsgfRemoteResolver():
             # TODO: test filename for start/end in self.query
             # *daterange_from_filename(filename)
 
+            # TODO: replace local_path with params
             local_filename = Path(self.local_path, filename)
             local_filename.parent.mkdir(parents=True, exist_ok=True)
-            local_filenames.append(str(local_filename))
 
             if local_filename.exists():
                 print(f'-> -> -> Already exists, skipping: {local_filename}')
+                local_filenames.append(str(local_filename))
                 continue
 
             if self.dry_run:
@@ -153,7 +154,11 @@ class EsgfRemoteResolver():
             try:
                 with fsspec.open(file_url, ssl=self.ssl_context) as src_file, open(local_filename, 'wb') as dest_file:
                     shutil.copyfileobj(src_file, dest_file)
+
+                local_filenames.append(str(local_filename))
             except Exception as e:
+                # TODO: improve error messaging, change to aiohttp for status codes?
+                print('-> -> ->', 'Error')
                 print('-> -> ->', e)
                 if hasattr(e, 'status_code') and e.status_code in [401, 402, 403]:
                     print('-> -> ->', 'Have you passed in `openid`?')
